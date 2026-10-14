@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arena Combat Prototype</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 16px;
+    }
+    .game-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      width: 100%;
+      max-width: 820px;
+    }
+    .hud {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .hud-group { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+    .hp-bar-bg {
+      width: 140px;
+      height: 14px;
+      background: #334155;
+      border-radius: 7px;
+      overflow: hidden;
+    }
+    .hp-bar-fill {
+      width: 100%;
+      height: 100%;
+      background: #22c55e;
+      transition: width 0.15s ease;
+    }
+    .badge {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge-ready { background: #166534; color: #86efac; border: 1px solid #22c55e; }
+    .badge-cd { background: #7f1d1d; color: #fca5a5; border: 1px solid #ef4444; }
+    .badge-weapon { background: #1e3a8a; color: #93c5fd; border: 1px solid #3b82f6; cursor: pointer; }
+    .btn {
+      background: #334155;
+      color: #f8fafc;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #475569; }
+    .canvas-container {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #090d16;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid #334155;
+    }
+    canvas { width: 100%; height: 100%; display: block; }
+    .overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(4px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      text-align: center;
+      padding: 20px;
+    }
+    .overlay.active { display: flex; }
+    .overlay h2 { font-size: 24px; color: #ef4444; }
+    .overlay p { font-size: 14px; color: #94a3b8; max-width: 400px; }
+    .controls-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .key-hint {
+      background: #0f172a;
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .key-badge {
+      background: #334155;
+      color: #f8fafc;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="game-card">
+    <div class="hud">
+      <div class="hud-group">
+        <span>ЗДОРОВ'Я:</span>
+        <div class="hp-bar-bg">
+          <div id="hpFill" class="hp-bar-fill"></div>
+        </div>
+      </div>
+
+      <div class="hud-group">
+        <span>РИВОК:</span>
+        <span id="dashBadge" class="badge badge-ready">ГОТОВИЙ</span>
+      </div>
+
+      <div class="hud-group">
+        <span>МОДУЛЬ:</span>
+        <span id="weaponBadge" class="badge badge-weapon" onclick="swapWeapon()">⚔️ Швидкий клинок</span>
+      </div>
+
+      <div class="hud-group">
+        <span style="color:#eab308;" id="comboText">COMBO: x0</span>
+        <button class="btn" onclick="resetGame()">↻ Перезапуск</button>
+      </div>
+    </div>
+
+    <div class="canvas-container">
+      <canvas id="gameCanvas" width="800" height="450"></canvas>
+      <div id="gameOverOverlay" class="overlay">
+        <h2 id="overlayTitle">Гравця оглушено!</h2>
+        <p id="overlayDesc">Використовуйте ривок із кадрами невразливості (i-frames) за колони, щоб уникнути шкоди.</p>
+        <button class="btn" style="background:#16a34a; font-size:15px; padding:10px 22px;" onclick="resetGame()">Почати знову</button>
+      </div>
+    </div>
+
+    <div class="controls-bar">
+      <div class="key-hint"><span class="key-badge">W A S D</span> або <span class="key-badge">Стрілки</span> Рух</div>
+      <div class="key-hint"><span class="key-badge">ЛКМ</span> або <span class="key-badge">J</span> 3-ударне комбо</div>
+      <div class="key-hint"><span class="key-badge">SPACE</span> Ривок (i-frames 0.2с)</div>
+      <div class="key-hint"><span class="key-badge">Q</span> Зміна модуля зброї</div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const hpFill = document.getElementById('hpFill');
+    const dashBadge = document.getElementById('dashBadge');
+    const weaponBadge = document.getElementById('weaponBadge');
+    const comboText = document.getElementById('comboText');
+    const overlay = document.getElementById('gameOverOverlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+
+    const WEAPON_MODULES = [
+      { name: "⚔️ Швидкий клинок", damage: 25, range: 45, arc: Math.PI * 0.5, color: "#38bdf8", speed: 0.15 },
+      { name: "🪓 Важкий розмах (AoE)", damage: 50, range: 68, arc: Math.PI * 0.9, color: "#f59e0b", speed: 0.28 }
+    ];
+    let currentModuleIndex = 0;
+
+    let player = {
+      x: 400, y: 225, radius: 14, speed: 3.2,
+      hp: 100, maxHp: 100,
+      isAlive: true,
+      dashTimer: 0, dashCooldown: 0,
+      iFrames: false,
+      comboStep: 0, comboTimer: 0,
+      attackCooldown: 0,
+      isAttacking: false, attackAngle: 0
+    };
+
+    const pillars = [
+      { x: 170, y: 100, w: 70, h: 70 },
+      { x: 560, y: 100, w: 70, h: 70 },
+      { x: 170, y: 280, w: 70, h: 70 },
+      { x: 560, y: 280, w: 70, h: 70 }
+    ];
+
+    let enemies = [];
+    let hitStopTimer = 0;
+    let attackSlashes = [];
+    let mousePos = { x: 400, y: 225 };
+
+    const keys = {};
+
+    window.addEventListener('keydown', (e) => {
+      keys[e.code] = true;
+      keys[e.key.toLowerCase()] = true;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        triggerDash();
+      }
+      if (e.code === 'KeyQ' || e.key.toLowerCase() === 'q' || e.key.toLowerCase() === 'й') {
+        swapWeapon();
+      }
+      if (e.code === 'KeyJ' || e.key.toLowerCase() === 'j' || e.key.toLowerCase() === 'о') {
+        triggerAttack();
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      keys[e.code] = false;
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mousePos.x = (e.clientX - rect.left) * (canvas.width / rect.width);
+      mousePos.y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 0) triggerAttack();
+    });
+
+    function swapWeapon() {
+      currentModuleIndex = (currentModuleIndex + 1) % WEAPON_MODULES.length;
+      weaponBadge.innerText = WEAPON_MODULES[currentModuleIndex].name;
+    }
+
+    function spawnEnemies() {
+      enemies = [
+        { x: 100, y: 225, hp: 60, maxHp: 60, speed: 1.4, radius: 12, hitFlash: 0 },
+        { x: 700, y: 225, hp: 60, maxHp: 60, speed: 1.4, radius: 12, hitFlash: 0 },
+        { x: 400, y: 60, hp: 60, maxHp: 60, speed: 1.3, radius: 12, hitFlash: 0 },
+        { x: 400, y: 390, hp: 60, maxHp: 60, speed: 1.3, radius: 12, hitFlash: 0 },
+        { x: 680, y: 350, hp: 60, maxHp: 60, speed: 1.2, radius: 12, hitFlash: 0 }
+      ];
+    }
+
+    function resetGame() {
+      player.x = 400; player.y = 225;
+      player.hp = player.maxHp;
+      player.isAlive = true;
+      player.dashCooldown = 0;
+      player.comboStep = 0;
+      overlay.classList.remove('active');
+      spawnEnemies();
+    }
+
+    function triggerDash() {
+      if (!player.isAlive || player.dashCooldown > 0) return;
+      player.dashTimer = 0.2; 
+      player.dashCooldown = 0.8;
+      player.iFrames = true;
+      player.isAttacking = false;
+    }
+
+    function triggerAttack() {
+      if (!player.isAlive || player.attackCooldown > 0) return;
+
+      const mod = WEAPON_MODULES[currentModuleIndex];
+      const angle = Math.atan2(mousePos.y - player.y, mousePos.x - player.x);
+      
+      player.isAttacking = true;
+      player.attackAngle = angle;
+      player.attackCooldown = mod.speed;
+
+      player.comboStep = (player.comboStep % 3) + 1;
+      player.comboTimer = 0.45; 
+      comboText.innerText = `COMBO: x${player.comboStep}`;
+
+      attackSlashes.push({
+        x: player.x, y: player.y,
+        angle: angle,
+        range: mod.range,
+        arc: mod.arc,
+        color: mod.color,
+        life: 0.12
+      });
+
+      let hitAny = false;
+      enemies.forEach(en => {
+        const dist = Math.hypot(en.x - player.x, en.y - player.y);
+        const enemyAngle = Math.atan2(en.y - player.y, en.x - player.x);
+        let angleDiff = Math.abs(angle - enemyAngle);
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        angleDiff = Math.abs(angleDiff);
+
+        if (dist <= mod.range + en.radius && angleDiff <= mod.arc / 2) {
+          en.hp -= mod.damage;
+          en.hitFlash = 0.1;
+          hitAny = true;
+          en.x += Math.cos(angle) * 12;
+          en.y += Math.sin(angle) * 12;
+        }
+      });
+
+      if (hitAny) {
+        hitStopTimer = 0.06;
+      }
+    }
+
+    function checkPillarCollision(x, y, radius) {
+      for (let p of pillars) {
+        let nearestX = Math.max(p.x, Math.min(x, p.x + p.w));
+        let nearestY = Math.max(p.y, Math.min(y, p.y + p.h));
+        let distX = x - nearestX;
+        let distY = y - nearestY;
+        if ((distX * distX + distY * distY) < (radius * radius)) return true;
+      }
+      return false;
+    }
+
+    let lastTime = performance.now();
+    function gameLoop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.1);
+      lastTime = now;
+
+      if (hitStopTimer > 0) {
+        hitStopTimer -= dt;
+      } else if (player.isAlive) {
+        let moveX = 0, moveY = 0;
+        if (keys['KeyW'] || keys['ArrowUp'] || keys['w'] || keys['ц']) moveY -= 1;
+        if (keys['KeyS'] || keys['ArrowDown'] || keys['s'] || keys['і'] || keys['ы']) moveY += 1;
+        if (keys['KeyA'] || keys['ArrowLeft'] || keys['a'] || keys['ф']) moveX -= 1;
+        if (keys['KeyD'] || keys['ArrowRight'] || keys['d'] || keys['в']) moveX += 1;
+
+        if (moveX !== 0 || moveY !== 0) {
+          const len = Math.hypot(moveX, moveY);
+          const currentSpeed = (player.dashTimer > 0) ? player.speed * 2.8 : player.speed;
+          const nextX = player.x + (moveX / len) * currentSpeed;
+          const nextY = player.y + (moveY / len) * currentSpeed;
+
+          if (!checkPillarCollision(nextX, player.y, player.radius) && nextX > 20 && nextX < 780) {
+            player.x = nextX;
+          }
+          if (!checkPillarCollision(player.x, nextY, player.radius) && nextY > 20 && nextY < 430) {
+            player.y = nextY;
+          }
+        }
+
+        if (player.dashTimer > 0) {
+          player.dashTimer -= dt;
+          if (player.dashTimer <= 0) player.iFrames = false;
+        }
+        if (player.dashCooldown > 0) {
+          player.dashCooldown -= dt;
+          dashBadge.className = 'badge badge-cd';
+          dashBadge.innerText = `${player.dashCooldown.toFixed(1)}c`;
+        } else {
+          dashBadge.className = 'badge badge-ready';
+          dashBadge.innerText = 'ГОТОВИЙ';
+        }
+
+        if (player.attackCooldown > 0) player.attackCooldown -= dt;
+        if (player.comboTimer > 0) {
+          player.comboTimer -= dt;
+          if (player.comboTimer <= 0) {
+            player.comboStep = 0;
+            comboText.innerText = 'COMBO: x0';
+          }
+        }
+
+        enemies = enemies.filter(en => en.hp > 0);
+        enemies.forEach(en => {
+          if (en.hitFlash > 0) en.hitFlash -= dt;
+
+          const toPlayerX = player.x - en.x;
+          const toPlayerY = player.y - en.y;
+          const dist = Math.hypot(toPlayerX, toPlayerY);
+
+          if (dist > 16) {
+            const stepX = en.x + (toPlayerX / dist) * en.speed;
+            const stepY = en.y + (toPlayerY / dist) * en.speed;
+            if (!checkPillarCollision(stepX, stepY, en.radius)) {
+              en.x = stepX;
+              en.y = stepY;
+            }
+          }
+          if (dist < player.radius + en.radius) {
+            if (!player.iFrames) {
+              player.hp -= 20 * dt;
+              if (player.hp <= 0) {
+                player.hp = 0;
+                player.isAlive = false;
+                overlayTitle.innerText = "Гравця оглушено!";
+                overlayTitle.style.color = "#ef4444";
+                overlay.classList.add('active');
+              }
+            }
+          }
+        });
+
+        if (enemies.length === 0 && player.isAlive) {
+          overlayTitle.innerText = "Хвилю зачищено! 🎉";
+          overlayTitle.style.color = "#22c55e";
+          overlay.classList.add('active');
+        }
+
+        hpFill.style.width = `${(player.hp / player.maxHp) * 100}%`;
+      }
+
+      attackSlashes.forEach(s => s.life -= dt);
+      attackSlashes = attackSlashes.filter(s => s.life > 0);
+
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      pillars.forEach(p => {
+        ctx.fillStyle = '#1e293b';
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 2;
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.strokeRect(p.x, p.y, p.w, p.h);
+
+        ctx.strokeStyle = '#334155';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + p.w, p.y + p.h);
+        ctx.moveTo(p.x + p.w, p.y); ctx.lineTo(p.x, p.y + p.h);
+        ctx.stroke();
+      });
+
+      enemies.forEach(en => {
+        ctx.fillStyle = en.hitFlash > 0 ? '#ffffff' : '#ef4444';
+        ctx.beginPath();
+        ctx.arc(en.x, en.y, en.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(en.x - 14, en.y - 18, 28, 4);
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(en.x - 14, en.y - 18, 28 * (en.hp / en.maxHp), 4);
+      });
+
+      attackSlashes.forEach(s => {
+        ctx.fillStyle = s.color + '44';
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.arc(s.x, s.y, s.range, s.angle - s.arc / 2, s.angle + s.arc / 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      });
+
+      if (player.isAlive) {
+        ctx.save();
+        if (player.iFrames) {
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = '#38bdf8';
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.7)';
+        } else {
+          ctx.fillStyle = '#0284c7';
+        }
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        const aimAngle = Math.atan2(mousePos.y - player.y, mousePos.x - player.x);
+        ctx.strokeStyle = '#f8fafc';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(player.x, player.y);
+        ctx.lineTo(player.x + Math.cos(aimAngle) * (player.radius + 6), player.y + Math.sin(aimAngle) * (player.radius + 6));
+        ctx.stroke();
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    spawnEnemies();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
